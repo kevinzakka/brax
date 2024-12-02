@@ -155,6 +155,8 @@ class NormalTanhDistribution(ParametricDistribution):
     self._var_scale = var_scale
 
   def create_dist(self, parameters):
-    loc, scale = jnp.split(parameters, 2, axis=-1)
-    scale = (jax.nn.softplus(scale) + self._min_std) * self._var_scale
+    loc, log_scale = jnp.split(parameters, 2, axis=-1)
+    # scale = (jax.nn.softplus(scale) + self._min_std) * self._var_scale
+    log_scale = jnp.clip(log_scale, -5, 2)
+    scale = jnp.exp(log_scale) * self._var_scale
     return NormalDistribution(loc=loc, scale=scale)
