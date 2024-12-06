@@ -454,7 +454,8 @@ def train(
     # Update normalization params and normalize observations.
     normalizer_params = running_statistics.update(
         training_state.normalizer_params,
-        _remove_pixels(data.observation),
+        # _remove_pixels(data.observation),
+        data.observation,
         pmap_axis_name=_PMAP_AXIS_NAME,
     )
 
@@ -529,7 +530,8 @@ def train(
       optimizer_state=optimizer.init(init_params),  # pytype: disable=wrong-arg-types  # numpy-scalars
       params=init_params,
       normalizer_params=running_statistics.init_state(
-          _remove_pixels(obs_shape)
+          # _remove_pixels(obs_shape)
+          obs_shape
       ),
       env_steps=0,
   )
