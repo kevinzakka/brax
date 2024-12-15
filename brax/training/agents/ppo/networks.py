@@ -54,9 +54,13 @@ def make_inference_fn(ppo_networks: PPONetworks):
       postprocessed_actions = parametric_action_distribution.postprocess(
           raw_actions
       )
+      mu = parametric_action_distribution.mean(logits)
+      sigma = parametric_action_distribution.stddev(logits)
       return postprocessed_actions, {
           'log_prob': log_prob,
           'raw_action': raw_actions,
+          'mu': mu,
+          'sigma': sigma,
       }
 
     return policy

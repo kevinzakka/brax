@@ -169,6 +169,7 @@ def train(
     max_grad_norm: Optional[float] = None,
     madrona_backend: bool = False,
     augment_pixels: bool = False,
+    desired_kl: float = 0.01,
 ):
   """PPO training.
 
@@ -330,12 +331,13 @@ def train(
   )
   make_policy = ppo_networks.make_inference_fn(ppo_network)
 
-  optimizer = optax.adam(learning_rate=learning_rate)
+  # optimizer = optax.adam(learning_rate=learning_rate)
+  optimizer = optax.inject_hyperparams(optax.adam)(learning_rate=learning_rate)
   if max_grad_norm is not None:
     # TODO: Move gradient clipping to `training/gradients.py`.
     optimizer = optax.chain(
         optax.clip_by_global_norm(max_grad_norm),
-        optax.adam(learning_rate=learning_rate),
+        optax.inject_hyperparams(optax.adam)(learning_rate=learning_rate),
     )
 
   loss_fn = functools.partial(
@@ -347,6 +349,7 @@ def train(
       gae_lambda=gae_lambda,
       clipping_epsilon=clipping_epsilon,
       normalize_advantage=normalize_advantage,
+      desired_kl=desired_kl,
   )
 
   gradient_update_fn = gradients.gradient_update_fn(
@@ -358,6 +361,7 @@ def train(
       data: types.Transition,
       normalizer_params: running_statistics.RunningStatisticsState,
   ):
+    """Performs a single minibatch SGD step."""
     optimizer_state, params, key = carry
     key, key_loss = jax.random.split(key)
     (_, metrics), params, optimizer_state = gradient_update_fn(
@@ -365,8 +369,10 @@ def train(
         normalizer_params,
         data,
         key_loss,
+        optimizer_state[1].hyperparams['learning_rate'],
         optimizer_state=optimizer_state,
     )
+    optimizer_state[1].hyperparams['learning_rate'] = metrics['learning_rate']
 
     return (optimizer_state, params, key), metrics
 

@@ -106,6 +106,7 @@ def compute_ppo_loss(
     normalizer_params: Any,
     data: types.Transition,
     rng: jnp.ndarray,
+    learning_rate: float,
     ppo_network: ppo_networks.PPONetworks,
     entropy_cost: float = 1e-4,
     discounting: float = 0.9,
@@ -113,6 +114,7 @@ def compute_ppo_loss(
     gae_lambda: float = 0.95,
     clipping_epsilon: float = 0.3,
     normalize_advantage: bool = True,
+    desired_kl: float = 0.01,
 ) -> Tuple[jnp.ndarray, types.Metrics]:
   """Computes PPO loss.
 
@@ -157,6 +159,30 @@ def compute_ppo_loss(
   )
   behaviour_action_log_probs = data.extras['policy_extras']['log_prob']
 
+  # KL.
+  old_mu = data.extras['policy_extras']['mu']
+  old_sigma = data.extras['policy_extras']['sigma']
+  mu = parametric_action_distribution.mean(policy_logits)
+  sigma = parametric_action_distribution.stddev(policy_logits)
+  kl = jnp.sum(
+      jnp.log(sigma / old_sigma + 1.0e-5)
+      + (jnp.square(old_sigma) + jnp.square(old_mu - mu))
+      / (2.0 * jnp.square(sigma))
+      - 0.5,
+      axis=-1,
+  )
+  kl_mean = jnp.mean(kl)
+
+  new_learning_rate = jnp.where(
+      kl_mean > desired_kl * 2.0,
+      jnp.maximum(1e-5, learning_rate / 1.5),
+      jnp.where(
+          jnp.logical_and(kl_mean < desired_kl / 2.0, kl_mean > 0.0),
+          jnp.minimum(1e-2, learning_rate * 1.5),
+          learning_rate
+      )
+  )
+
   vs, advantages = compute_gae(
       truncation=truncation,
       termination=termination,
@@ -191,4 +217,5 @@ def compute_ppo_loss(
       'policy_loss': policy_loss,
       'v_loss': v_loss,
       'entropy_loss': entropy_loss,
+      'learning_rate': new_learning_rate,
   }

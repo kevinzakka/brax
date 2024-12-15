@@ -91,6 +91,12 @@ class ParametricDistribution(abc.ABC):
       entropy = jnp.sum(entropy, axis=-1)
     return entropy
 
+  def mean(self, parameters):
+    return self.postprocess(self.create_dist(parameters).mean())
+
+  def stddev(self, parameters):
+    # Theoretically not correct but who cares.
+    return self.create_dist(parameters).stddev()
 
 class NormalDistribution:
   """Normal distribution."""
@@ -104,6 +110,12 @@ class NormalDistribution:
 
   def mode(self):
     return self.loc
+
+  def mean(self):
+    return self.loc
+
+  def stddev(self):
+    return self.scale
 
   def log_prob(self, x):
     log_unnormalized = -0.5 * jnp.square(x / self.scale - self.loc / self.scale)
