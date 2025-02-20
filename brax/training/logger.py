@@ -52,16 +52,20 @@ class EpisodeMetricsLogger:
     log_string = (
         f"\n{'Steps':>{pad}} Env: {self._num_steps} Log: {self._log_count}\n"
     )
-    mean_metrics = {}
+    metrics = {}
     for metric_name in self._metrics_buffer:
-      mean_metrics[metric_name] = np.mean(self._metrics_buffer[metric_name])
+      values = self._metrics_buffer[metric_name]
+      mean = np.mean(values)
+      std = np.std(values)
+      metrics[f"{metric_name}_mean"] = mean
+      metrics[f"{metric_name}_std"] = std
       log_string += (
           f"{f'Episode {metric_name}:':>{pad}}"
-          f" {mean_metrics[metric_name]:.4f}\n"
+          f" {mean:.4f} ± {std:.4f}\n"
       )
     logging.info(log_string)
     if self._progress_fn is not None:
       self._progress_fn(
           int(self._num_steps),
-          {f"episode/{name}": value for name, value in mean_metrics.items()},
+          {f"episode/{name}": value for name, value in metrics.items()},
       )
