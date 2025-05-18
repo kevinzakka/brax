@@ -14,7 +14,7 @@
 
 """PPO networks."""
 
-from typing import Sequence, Tuple
+from typing import Literal, Sequence, Tuple
 
 from brax.training import distribution
 from brax.training import networks
@@ -73,11 +73,19 @@ def make_ppo_networks(
     activation: networks.ActivationFn = linen.swish,
     policy_obs_key: str = 'state',
     value_obs_key: str = 'state',
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "scalar",
+    init_noise_std: float = 1.0,
 ) -> PPONetworks:
   """Make PPO networks with preprocessor."""
-  parametric_action_distribution = distribution.NormalTanhDistribution(
+  if distribution_type == "normal":
+    parametric_action_distribution = distribution.NormalDistribution(
       event_size=action_size
-  )
+    )
+  else:
+    parametric_action_distribution = distribution.NormalTanhDistribution(
+        event_size=action_size
+    )
   policy_network = networks.make_policy_network(
       parametric_action_distribution.param_size,
       observation_size,
@@ -85,6 +93,9 @@ def make_ppo_networks(
       hidden_layer_sizes=policy_hidden_layer_sizes,
       activation=activation,
       obs_key=policy_obs_key,
+      distribution_type=distribution_type,
+      noise_std_type=noise_std_type,
+      init_noise_std=init_noise_std,
   )
   value_network = networks.make_value_network(
       observation_size,

@@ -27,7 +27,6 @@ from jax import numpy as jp
 def wrap(
     env: Env,
     episode_length: int = 1000,
-    action_repeat: int = 1,
     randomization_fn: Optional[
         Callable[[System], Tuple[System, System]]
     ] = None,
@@ -50,7 +49,7 @@ def wrap(
     env = VmapWrapper(env)
   else:
     env = DomainRandomizationVmapWrapper(env, randomization_fn)
-  env = EpisodeWrapper(env, episode_length, action_repeat)
+  env = EpisodeWrapper(env, episode_length)
   env = AutoResetWrapper(env)
   return env
 
@@ -105,10 +104,9 @@ class EpisodeWrapper(Wrapper):
     one = jp.ones_like(state.done)
     zero = jp.zeros_like(state.done)
     episode_length = jp.array(self.episode_length, dtype=jp.int32)
-    done = jp.where(steps >= episode_length, one, state.done)
-    state.info['truncation'] = jp.where(
-        steps >= episode_length, 1 - state.done, zero
-    )
+    truncated = steps >= episode_length
+    done = jp.where(truncated, one, state.done)
+    state.info['truncation'] = jp.where(truncated, 1 - state.done, zero)
     state.info['steps'] = steps
 
     # Aggregate state metrics into episode metrics

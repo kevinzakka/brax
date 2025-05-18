@@ -16,7 +16,7 @@
 
 import dataclasses
 import functools
-from typing import Any, Callable, Mapping, Sequence, Tuple
+from typing import Any, Callable, Literal, Mapping, Sequence, Tuple
 import warnings
 
 from brax.training import types
@@ -220,6 +220,65 @@ class VisionMLP(linen.Module):
     )(hidden)
 
 
+class Param(linen.Module):
+  """Scalar parameter module."""
+
+  init_value: float = 0.0
+  size: int = 1
+
+  @linen.compact
+  def __call__(self):
+    return self.param(
+      "value", init_fn=lambda keys: jnp.full((self.size,), self.init_value)
+    )
+
+
+class LogParam(linen.Module):
+  """Scalar parameter module with log scale."""
+
+  init_value: float = 1.0
+  size: int = 1
+
+  @linen.compact
+  def __call__(self):
+    log_value = self.param(
+      "log_value", init_fn=lambda key: jnp.full((self.size,), jnp.log(self.init_value))
+    )
+    return jnp.exp(log_value)
+
+
+class PolicyModuleWithStd(linen.Module):
+  """Policy network module that outputs mean and a state-independent std deviation."""
+
+  param_size: int
+  hidden_layer_sizes: Sequence[int]
+  activation: ActivationFn
+  kernel_init: jax.nn.initializers.Initializer
+  layer_norm: bool
+  noise_std_type: Literal["scalar", "log"]
+  init_noise_std: float
+
+  @linen.compact
+  def __call__(self, obs):
+    mean_module = MLP(
+      layer_sizes=list(self.hidden_layer_sizes) + [self.param_size],
+      activation=self.activation,
+      kernel_init=self.kernel_init,
+      layer_norm=self.layer_norm,
+    )
+    mean_params = mean_module(obs)
+
+    if self.noise_std_type == "scalar":
+      std_module = Param(self.init_noise_std, size=self.param_size, name="std_param")
+    else:
+      std_module = LogParam(
+        self.init_noise_std, size=self.param_size, name="std_logparam"
+      )
+    std_params = std_module()
+
+    return mean_params, std_params
+
+
 def _get_obs_state_size(obs_size: types.ObservationSize, obs_key: str) -> int:
   obs_size = obs_size[obs_key] if isinstance(obs_size, Mapping) else obs_size
   return jax.tree_util.tree_flatten(obs_size)[0][-1]
@@ -234,14 +293,28 @@ def make_policy_network(
     kernel_init: Initializer = jax.nn.initializers.lecun_uniform(),
     layer_norm: bool = False,
     obs_key: str = 'state',
+    distribution_type: Literal["normal", "tanh_normal"] = "tanh_normal",
+    noise_std_type: Literal["scalar", "log"] = "log",
+    init_noise_std: float = 1.0,
 ) -> FeedForwardNetwork:
   """Creates a policy network."""
-  policy_module = MLP(
-      layer_sizes=list(hidden_layer_sizes) + [param_size],
+  if distribution_type == "tanh_normal":
+    policy_module = MLP(
+        layer_sizes=list(hidden_layer_sizes) + [param_size],
+        activation=activation,
+        kernel_init=kernel_init,
+        layer_norm=layer_norm,
+    )
+  else:
+    policy_module = PolicyModuleWithStd(
+      param_size=param_size,
+      hidden_layer_sizes=hidden_layer_sizes,
       activation=activation,
       kernel_init=kernel_init,
       layer_norm=layer_norm,
-  )
+      noise_std_type=noise_std_type,
+      init_noise_std=init_noise_std,
+    )
 
   def apply(processor_params, policy_params, obs):
     if isinstance(obs, Mapping):
@@ -254,9 +327,12 @@ def make_policy_network(
 
   obs_size = _get_obs_state_size(obs_size, obs_key)
   dummy_obs = jnp.zeros((1, obs_size))
-  return FeedForwardNetwork(
-      init=lambda key: policy_module.init(key, dummy_obs), apply=apply
-  )
+
+  def init(key):
+    policy_module_params = policy_module.init(key, dummy_obs)
+    return policy_module_params
+
+  return FeedForwardNetwork(init=init, apply=apply)
 
 
 def make_value_network(
